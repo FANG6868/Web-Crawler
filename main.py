@@ -1,121 +1,225 @@
-import time
+import jieba
+import numpy as np
+import pickle
+import pathlib
+import re
 import pandas as pd
-from selenium.webdriver import Chrome
-from selenium.webdriver.common.by import By
 
+class Sentiment(object):
+    def __init__(self, merge=True, pos=None, neg=None, encoding='utf-8'):
+        self.Poss = self.load_dict('pos.pkl')
+        self.Negs = self.load_dict('neg.pkl')
 
-def is_exist_z(web):
-    try:
-        txt = web.find_element(By.XPATH, './div/div[1]/div[2]/p[1]/a').text
-        if '展开' in txt:
-            return True
-        else:
-            return False
-    except:
-        return False
+        if pos:
+            if merge:
+                del self.Poss
+                self.Poss = self.load_diydict(file=pos, encoding=encoding)+self.load_dict('pos.pkl')
+                jieba.load_userdict(pos)
 
-if __name__ == "__main__":
-    url = 'https://s.weibo.com/'
-    web = Chrome('E:\FangLin\Taobao\chromedriver.exe')
-    web.get(url)
-    time.sleep(10)
-
-    topic = input('请输入话题：') #话题的形式必须是#上海疫情#，必须用双#号括起来
-    time.sleep(3)
-    search_input = web.find_element(By.XPATH, '//*[@id="pl_homepage_search"]/div/div[2]/div/input')
-    search_input.send_keys(topic)
-    search_button = web.find_element(By.XPATH, '//*[@id="pl_homepage_search"]/div/div[2]/button')
-    search_button.click()
-    time.sleep(5)
-    #hot_topic_link = web.find_element(By.XPATH, '/html/body/div[1]/div[2]/div/div[1]/ul/li[1]/a')
-    #hot_topic_link.click()
-
-    page_count = 1
-    data = []
-    while page_count <= 2:  # 自定义爬取的页码，这里定义为2
-        print(f"开始爬取第 {page_count} 页数据")
-        count = 0
-        while count < 5:
-            web.execute_script('window.scrollTo(0,document.body.scrollHeight)')
-            time.sleep(3)
-            count += 1
-
-        div_list = web.find_elements(By.XPATH, '//*[@id="pl_feedlist_index"]/div[4]/div')
-        for div in div_list:
-            user_name = div.find_element(By.XPATH,'./div[@class="card"]/div[@class="card-feed"]/div[@class="content"]/div[@class="info"]/div[2]/a').text
-            tran = div.find_element(By.XPATH, './div[@class="card"]/div[@class="card-act"]/ul/li[1]').text
-            comment = div.find_element(By.XPATH, './div[@class="card"]/div[@class="card-act"]/ul/li[2]').text
-            praise = div.find_element(By.XPATH, './div[@class="card"]/div[@class="card-act"]/ul/li[3]').text
-            date = div.find_element(By.XPATH,'./div[@class="card"]/div[@class="card-feed"]/div[@class="content"]/div[@class="from"]/a').text
-            user_url = div.find_element(By.XPATH,'./div[@class="card"]/div[@class="card-feed"]/div[@class="content"]/div[@class="info"]/div[2]/a').get_attribute('href')
-            tag = user_name + '的微博视频'
-
-            detail = ""
-            if is_exist_z(div):
-                detail_page_content_url = div.find_element(By.XPATH, './div/div[1]/div[2]/p[1]/a').get_attribute('href')
-                js = "window.open('" + detail_page_content_url + "');"
-                web.execute_script(js)
-                time.sleep(5)
-                web.switch_to.window(web.window_handles[1])
-                time.sleep(5)
-                detail = web.find_element(By.XPATH,'//*[@id="app"]/div[2]/div[2]/div[2]/main/div/div/div[2]/article/div[2]/div/div/div').text
-                with open('ciyun.txt', 'a', encoding='utf-8') as file:
-                    file.write(detail + '\n')
-                web.close()
-                web.switch_to.window(web.window_handles[0])
             else:
-                detail = div.find_element(By.XPATH,'./div[@class="card"]/div[@class="card-feed"]/div[@class="content"]/p').text
+                del self.Poss
+                self.Poss = self.load_diydict(file=pos, encoding=encoding)
+                jieba.load_userdict(pos)
 
-            try:
-                video_length_element = div.find_element(By.XPATH,'./div[@class="card"]/div[@class="card-feed"]/div[@class="content"]/div[3]/div[@class="thumbnail"]/a/div/div/button')
-                video_length_element.click()
-                time.sleep(2)  # Let the video load and display the duration
-                video_text_list = div.find_elements(By.XPATH,'./div[@class="card"]/div[@class="card-feed"]/div[@class="content"]/div[3]/div[@class="thumbnail"]')
 
-                for infor in video_text_list:
-                    video_text = infor.text
-                    lines = video_text.split("\n")
-                    video_length = lines[5]
-            except:
-                video_length = 'no video'
+        if neg:
+            if merge:
+                del self.Negs
+                self.Negs = self.load_diydict(file=neg, encoding=encoding)+self.load_dict('neg.pkl')
+                jieba.load_userdict(neg)
+            else:
+                del self.Negs
+                self.Negs = self.load_diydict(file=neg, encoding=encoding)
+                jieba.load_userdict(neg)
 
-            us = "window.open('" + user_url + "');"
-            web.execute_script(us)
-            time.sleep(5)
-            web.switch_to.window(web.window_handles[1])
-            time.sleep(5)
-            try:
-                ip = web.find_element(By.XPATH,'//*[@id="app"]/div[2]/div[2]/div[2]/main/div/div/div[2]/div[1]/div[1]/div[3]/div/div/div[1]/div[3]').text
-            except:
-                ip = 'no ip'
+        self.Denys = self.load_dict('deny.pkl')
+        self.Extremes = self.load_dict('extreme.pkl')
+        self.Verys = self.load_dict('very.pkl')
+        self.Mores = self.load_dict('more.pkl')
+        self.Ishs = self.load_dict('ish.pkl')
 
-            try:
-                fans = web.find_element(By.XPATH,
-                                        '//*[@id="app"]/div[2]/div[2]/div[2]/main/div[1]/div/div[2]/div[1]/div[1]/div[2]/div[2]/div[2]/a[1]/span/span').text
-            except:
-                fans = 'no fans'
+    def load_dict(self, file):
+        pathchain = ['dictionary', 'hownet',file]
+        mood_dict_filepath = pathlib.Path(__file__).parent.joinpath(*pathchain)
+        dict_f = open(mood_dict_filepath, 'rb')
+        words = pickle.load(dict_f)
+        return words
 
-            try:
-                element = web.find_element(By.CSS_SELECTOR,'#app > div.woo-box-flex.woo-box-column.Frame_wrap_3g67Q > div.woo-box-flex.Frame_content_3XrxZ.Frame_noside1_3M1rh > div.Frame_main_3Z_V0 > main > div > div > div:nth-child(2) > div:nth-child(1) > div.woo-panel-main.woo-panel-top.woo-panel-right.woo-panel-bottom.woo-panel-left.Card_wrap_2ibWe.Card_bottomGap_2Xjqi > div.woo-box-flex.woo-box-alignStart.ProfileHeader_box1_1qC-g > div.woo-box-item-flex > div.woo-box-flex.woo-box-alignCenter.ProfileHeader_h3_2nhjc > span:nth-child(2) > svg')
-                attribute_value = element.get_attribute('class')
-                start_index = attribute_value.find('--') + 2
-                end_index = attribute_value.find('"', start_index)
-                gender = attribute_value[start_index:end_index] + 'e'
-            except:
-                gender = 'no gender'
-            web.close()
-            web.switch_to.window(web.window_handles[0])
+    def load_diydict(self, file, encoding):
+        text = open(file, encoding=encoding).read()
+        words = text.split('\n')
+        words = [w for w in words if w]
+        return words
 
-            data.append([user_name, tran, comment, praise, date, user_url, ip, fans, gender, detail, video_length, tag])
 
-        next_page_button = web.find_element(By.XPATH, '//a[@class="next"]')
-        next_page_button.click()
-        time.sleep(5)
+    def sentiment_count(self, text):
+        length, sentences, pos, neg = 0, 0, 0, 0
+        sentences = [s for s in re.split('[\.。！!？\?\n;；]+', text) if s]
+        sentences = len(sentences)
+        words = jieba.lcut(text)
+        length = len(words)
+        for w in words:
+            if w in self.Poss:
+                pos+=1
+            elif w in self.Negs:
+                neg+=1
+            else:
+                pass
+        return {'words': length,  'sentences':sentences, 'pos':pos, 'neg':neg}
 
-        page_count += 1
 
-    web.quit()
 
-    # Save the data to an Excel file
-    df = pd.DataFrame(data, columns=['用户名', '转发', '评论', '点赞', '发博时间', '个人微博链接', 'IP地址', '粉丝数量', '性别', '内容', '视频时长', '视频标签'])
-    df.to_excel('weibo.xlsx', index=False)
+    def judgeodd(self, num):
+        if (num % 2) == 0:
+            return 'even'
+        else:
+            return 'odd'
+
+    def sentiment_calculate(self, text):
+        sentences = [s for s in re.split('[\.。！!？\?\n;；]+', text) if s]
+        wordnum = len(jieba.lcut(text))
+        count1 = []
+        count2 = []
+        for sen in sentences:
+            segtmp = jieba.lcut(sen)
+            i = 0  # 记录扫描到的词的位置
+            a = 0  # 记录情感词的位置
+            poscount = 0  # 积极词的第一次分值
+            poscount2 = 0  # 积极词反转后的分值
+            poscount3 = 0  # 积极词的最后分值（包括叹号的分值）
+            negcount = 0
+            negcount2 = 0
+            negcount3 = 0
+            for word in segtmp:
+                if word in self.Poss:  # 判断词语是否是情感词
+                    poscount += 1
+                    c = 0
+                    for w in segtmp[a:i]:  # 扫描情感词前的程度词
+                        if w in self.Extremes:
+                            poscount *= 4.0
+                        elif w in self.Verys:
+                            poscount *= 3.0
+                        elif w in self.Mores:
+                            poscount *= 2.0
+                        elif w in self.Ishs:
+                            poscount *= 0.5
+                        elif w in self.Denys:
+                            c += 1
+                    if self.judgeodd(c) == 'odd':  # 扫描情感词前的否定词数
+                        poscount *= -1.0
+                        poscount2 += poscount
+                        poscount = 0
+                        poscount3 = poscount + poscount2 + poscount3
+                        poscount2 = 0
+                    else:
+                        poscount3 = poscount + poscount2 + poscount3
+                        poscount = 0
+                    a = i + 1  # 情感词的位置变化
+
+                elif word in self.Negs:  # 消极情感的分析，与上面一致
+                    negcount += 1
+                    d = 0
+                    for w in segtmp[a:i]:
+                        if w in self.Extremes:
+                            negcount *= 4.0
+                        elif w in self.Verys:
+                            negcount *= 3.0
+                        elif w in self.Mores:
+                            negcount *= 2.0
+                        elif w in self.Ishs:
+                            negcount *= 0.5
+                        elif w in self.Denys:
+                            d += 1
+                    if self.judgeodd(d) == 'odd':
+                        negcount *= -1.0
+                        negcount2 += negcount
+                        negcount = 0
+                        negcount3 = negcount + negcount2 + negcount3
+                        negcount2 = 0
+                    else:
+                        negcount3 = negcount + negcount2 + negcount3
+                        negcount = 0
+                    a = i + 1
+                elif word == '！' or word == '!':  ##判断句子是否有感叹号
+                    for w2 in segtmp[::-1]:  # 扫描感叹号前的情感词，发现后权值+2，然后退出循环
+                        if w2 in self.Poss or self.Negs:
+                            poscount3 += 2
+                            negcount3 += 2
+                            break
+                i += 1  # 扫描词位置前移
+
+                # 以下是防止出现负数的情况
+                pos_count = 0
+                neg_count = 0
+                if poscount3 < 0 and negcount3 > 0:
+                    neg_count += negcount3 - poscount3
+                    pos_count = 0
+                elif negcount3 < 0 and poscount3 > 0:
+                    pos_count = poscount3 - negcount3
+                    neg_count = 0
+                elif poscount3 < 0 and negcount3 < 0:
+                    neg_count = -poscount3
+                    pos_count = -negcount3
+                else:
+                    pos_count = poscount3
+                    neg_count = negcount3
+
+                count1.append([pos_count, neg_count])
+            count2.append(count1)
+            count1 = []
+
+        pos_result = []
+        neg_result = []
+        for sentence in count2:
+            score_array = np.array(sentence)
+            pos = np.sum(score_array[:, 0])
+            neg = np.sum(score_array[:, 1])
+            pos_result.append(pos)
+            neg_result.append(neg)
+
+        pos_score = np.sum(np.array(pos_result))
+        neg_score = np.sum(np.array(neg_result))
+        score = {'sentences': len(count2),
+                 'words':wordnum,
+                 'pos': pos_score,
+                 'neg': neg_score}
+
+        return score
+
+def calculate_sentiment_and_word_count(file_name):
+    with open(file_name, 'r', encoding='utf-8') as file:
+        text_content = file.read()
+
+    # Initialize an instance of the Sentiment class
+    senti = Sentiment()
+
+    # Calculate the sentiment score for the text content
+    sentiment_score = senti.sentiment_calculate(text_content)
+
+    # Count the number of words in the text content
+    word_count = len(jieba.lcut(text_content))
+
+    return sentiment_score, word_count
+
+# Create an empty DataFrame to store the results
+results = []
+
+# Process files for a range of years and quarters
+for year in range(2001, 2019):
+    quarters = ['第一季度', '第二季度', '第三季度']
+    if year < 2018:
+        quarters.append('第四季度')
+
+    for quarter in quarters:
+        file_name = f'{year}_{quarter}.txt'  # Generate the filename
+        sentiment_score, word_count = calculate_sentiment_and_word_count(file_name)
+
+        # Append the results as a dictionary
+        results.append({'File': file_name, 'Word Count': word_count, 'Sentences': sentiment_score['sentences'],
+                        'Neg': sentiment_score['neg'], 'Pos': sentiment_score['pos']})
+
+# Create a DataFrame from the list of results
+results_df = pd.DataFrame(results)
+
+# Save the DataFrame to an Excel file with the specified column names
+results_df.to_excel('sentiment.xlsx', index=False, columns=['File', 'Word Count', 'Sentences', 'Neg', 'Pos'])
